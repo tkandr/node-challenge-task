@@ -1,19 +1,29 @@
-version: '3.8'
-
 services:
   postgres:
-    image: postgres:15-alpine
+    image: ${COMPOSE_PG_IMAGE:-postgres}:${COMPOSE_PG_VERSION:-18-alpine}
     container_name: token-price-postgres
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: tokens
+      POSTGRES_USER: ${PG_USERNAME:?}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:?}
+      POSTGRES_DB: ${PG_DATABASE:?}
     ports:
-      - "5432:5432"
+      - "${PG_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -41,10 +51,12 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      test:
+        ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
       interval: 10s
       timeout: 10s
       retries: 5
 
 volumes:
   postgres-data:
+  redis_data:

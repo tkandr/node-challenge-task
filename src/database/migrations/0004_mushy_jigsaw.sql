@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "token_id_chain_id_idx" ON "chain_tokens" USING btree ("token_id","chain_id");

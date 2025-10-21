@@ -1,54 +1,68 @@
-import { Module, OnModuleInit } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { DrizzlePostgresModule } from '@knaadh/nestjs-drizzle-postgres';
+import { RedisModule } from '@nestjs-modules/ioredis';
+import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { Token } from './models/token.entity';
-import { TokenPriceUpdateService } from './services/token-price-update.service';
-import { MockPriceService } from './services/mock-price.service';
-import { KafkaProducerService } from './kafka/kafka-producer.service';
-import { TokenSeeder } from './data/token.seeder';
+import { ScheduleModule } from '@nestjs/schedule';
+
+import {
+  dbConfigObj,
+  enabledConfigs,
+  IRedisConfig,
+  redisConfig as _redisConfig,
+} from '@debridge/config/index';
+
+import { DB_TAG, schema } from './database/index';
+import { CommonModule } from './modules/common';
+import { HealthModule } from './modules/health/health.module';
+import { MessagingModule } from './modules/messaging';
+import { OutboxModule } from './modules/outbox';
+import { TokenPriceModule } from './modules/token-price';
+import { TelemetryModule } from './telemetry';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
+      cache: true,
       isGlobal: true,
+      load: enabledConfigs,
     }),
-    TypeOrmModule.forRoot({
-      type: 'postgres',
-      host: 'localhost',
-      port: 5432,
-      username: 'postgres',
-      password: 'postgres',
-      database: 'tokens',
-      entities: [Token],
-      migrations: [__dirname + '/migrations/*.{js,ts}'],
-      migrationsRun: true, // Run migrations automatically
-      synchronize: false, // Disabled when using migrations
+    TelemetryModule,
+    ScheduleModule.forRoot(),
+    DrizzlePostgresModule.register({
+      tag: DB_TAG,
+      postgres: {
+        url: dbConfigObj.connectionString,
+        config: {
+          max: dbConfigObj.pool.max,
+          connect_timeout: dbConfigObj.pool.connectionTimeout, // postgres.js expects seconds
+        },
+      },
+      config: {
+        schema,
+      },
     }),
-    TypeOrmModule.forFeature([Token]),
+    RedisModule.forRootAsync({
+      useFactory: (config: IRedisConfig) => ({
+        type: 'single',
+        options: {
+          family: 0,
+          host: config.host,
+          port: config.port,
+          password: config.password,
+          connectTimeout: config.connectTimeout,
+          lazyConnect: false, // Force immediate connection for fail-fast validation
+          enableReadyCheck: true, // Wait for server to be ready before resolving
+        },
+      }),
+      inject: [{ token: _redisConfig.KEY, optional: false }],
+    }),
+    MessagingModule,
+    HealthModule,
+    CommonModule,
+    OutboxModule,
+    TokenPriceModule,
   ],
   controllers: [],
-  providers: [
-    TokenPriceUpdateService,
-    MockPriceService,
-    KafkaProducerService,
-    TokenSeeder,
-  ],
+  providers: [],
 })
-export class AppModule implements OnModuleInit {
-  constructor(
-    private readonly tokenSeeder: TokenSeeder,
-    private readonly tokenPriceUpdateService: TokenPriceUpdateService,
-  ) {}
-
-  async onModuleInit() {
-    try {
-      // Seed initial data
-      await this.tokenSeeder.seed();
-      
-      // Start price update service
-      this.tokenPriceUpdateService.start();
-    } catch (error) {
-      console.error('Failed to initialize application:', error);
-    }
-  }
-}
+export class AppModule {}
